@@ -6,23 +6,20 @@ import me.fireandice.ghosttracker.tracker.GhostListener
 import me.fireandice.ghosttracker.tracker.GhostTimer
 import me.fireandice.ghosttracker.tracker.PurseListener
 import me.fireandice.ghosttracker.utils.ScoreboardUtils
-import net.minecraftforge.client.event.ClientChatReceivedEvent
-import net.minecraftforge.event.world.WorldEvent
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent
-import net.minecraftforge.fml.common.gameevent.TickEvent
-import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent
+import net.minecraft.network.chat.Component
 
+/**
+ * All per-tick/per-message handling is collected here. The actual Minecraft event registration
+ * lives in `platform.Platform` so it is easy to isolate when upgrading to a newer Minecraft version.
+ */
 object EventListener {
 
-    @SubscribeEvent
-    fun onTickStart(event: ClientTickEvent) {
-        if (event.phase != TickEvent.Phase.START) return
-
+    fun onTickStart() {
         ScoreboardUtils.checkLocations()
         PurseListener.onTick()
         everyFiveMinutes()
-        GhostConfig.tracker_hud.refreshLines()
-        GhostConfig.timer_hud.refreshLines()
+        GhostConfig.trackerHud.refreshLines()
+        GhostConfig.timerHud.refreshLines()
 
         if (ScoreboardUtils.inSkyblock) {
             PriceData.fetchPrices()
@@ -37,12 +34,16 @@ object EventListener {
         lastFiveMinuteUpdate = System.currentTimeMillis()
     }
 
-    @SubscribeEvent
-    fun onWorldUnload(event: WorldEvent.Unload) = GhostTimer.pause(false)
+    fun onWorldUnload() = GhostTimer.pause(false)
 
-    @SubscribeEvent
-    fun onChat(event: ClientChatReceivedEvent) {
-        GhostListener.onChat(event)
-        GhostListener.onActionBar(event)
+    /**
+     * `isActionBar` is true for action bar (overlay) messages.
+     */
+    fun onChat(text: Component, isActionBar: Boolean) {
+        if (isActionBar) {
+            GhostListener.onActionBar(text.getString())
+        } else {
+            GhostListener.onChat(text.getString())
+        }
     }
 }

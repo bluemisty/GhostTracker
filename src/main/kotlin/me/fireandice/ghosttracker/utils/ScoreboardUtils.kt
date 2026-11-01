@@ -1,8 +1,8 @@
 package me.fireandice.ghosttracker.utils
 
-import cc.polyfrost.oneconfig.utils.dsl.mc
-import net.minecraft.scoreboard.Score
-import net.minecraft.scoreboard.ScorePlayerTeam
+import net.minecraft.client.Minecraft
+import net.minecraft.world.scores.DisplaySlot
+import net.minecraft.world.scores.PlayerScoreEntry
 
 /**
  * Modified from https://github.com/inglettronald/DulkirMod under the GNU Affero General Public License v3.0
@@ -10,12 +10,12 @@ import net.minecraft.scoreboard.ScorePlayerTeam
 object ScoreboardUtils {
 
     /**
-     * Only updates after [ScoreboardUtils.checkLocations] is called
+     * Only updates after [checkLocations] is called
      */
     var inSkyblock = false
 
     /**
-     * Only updates after [ScoreboardUtils.checkLocations] is called
+     * Only updates after [checkLocations] is called
      */
     var inDwarvenMines = false
 
@@ -26,46 +26,40 @@ object ScoreboardUtils {
         "Divan's Gateway", "Lava Springs", "The Mist", "Dwarven Mines", "Gates to the Mines", "The Lift"
     )
 
-    private fun getLines(): MutableList<String> {
-        if (mc.thePlayer == null || mc.theWorld == null) return emptyList<String>().toMutableList()
-
-        val scoreboard = mc.thePlayer.worldScoreboard
-        val sidebarObjective = scoreboard.getObjectiveInDisplaySlot(1)
-        val scores: List<Score> = ArrayList(scoreboard.getSortedScores(sidebarObjective))
-        val lines: MutableList<String> = ArrayList()
-
-        for (score in scores.reverseIterator()) {
-            val scoreplayerteam1 = scoreboard.getPlayersTeam(score.playerName)
-            val line = ScorePlayerTeam.formatPlayerName(scoreplayerteam1, score.playerName)
-            lines.add(line)
-        }
-        return lines
+    /**
+     * The sidebar lines, top to bottom, with formatting codes still in them.
+     */
+    private fun getLines(): List<String> {
+        val level = Minecraft.getInstance().level ?: return emptyList()
+        val scoreboard = level.scoreboard
+        val objective = scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR) ?: return emptyList()
+        val entries: List<PlayerScoreEntry> = scoreboard.listPlayerScores(objective).toList()
+        return entries.sortedByDescending { it.value() }.map { it.display()?.getString() ?: "" }
     }
 
     /**
      * Called in `EventListener.onTickStart()`
      */
     private fun inSkyblock(): Boolean {
-        if (mc.theWorld == null
-            || mc.thePlayer == null
-            || mc.isSingleplayer
-            || mc.thePlayer.clientBrand?.contains("hypixel", true) == false
-        ) return false
-        val objective = mc.thePlayer.worldScoreboard.getObjectiveInDisplaySlot(1) ?: return false
-        return objective.displayName.stripControlCodes().contains("skyblock", true)
+        val mc = Minecraft.getInstance()
+        val level = mc.level ?: return false
+        val server = mc.currentServer ?: return false          // null on the main menu or in singleplayer
+        if (mc.isSingleplayer) return false
+        if (!server.ip.contains("hypixel", ignoreCase = true)) return false
+        val objective = level.scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR) ?: return false
+        val title = objective.displayName?.getString() ?: return false
+        return title.stripControlCodes().contains("skyblock", ignoreCase = true)
     }
 
     /**
      * Called in `EventListener.onTickStart()`
      */
     fun checkLocations() {
-        if (!inSkyblock()) {
-            inSkyblock = false
+        inSkyblock = inSkyblock()
+        if (!inSkyblock) {
             inDwarvenMines = false
             return
         }
-
-        inSkyblock = true
 
         val lines = getLines()
 
@@ -74,11 +68,16 @@ object ScoreboardUtils {
             return
         }
 
-        var line = lines.getOrNull(4)
-
-        if (line != null) {
-            line = line.stripControlCodes()
-            for (loc in locations) if (loc in line) {
+        // The location is displayed on the fifth sidebar line. The extra loop is a robustness fallback in case
+        // hypixel changes the sidebar layout: the location names are unique so scanning the rest is safe.
+        val line = lines.getOrNull(4)?.stripControlCodes()
+        if (line != null && locations.any { it in line }) {
+            inDwarvenMines = true
+            return
+        }
+        for (line in lines) {
+            val stripped = line.stripControlCodes()
+            if (locations.any { it in stripped }) {
                 inDwarvenMines = true
                 return
             }
@@ -93,7 +92,7 @@ object ScoreboardUtils {
         if (!inSkyblock) return null
 
         val lines = getLines()
-        for (line in lines) if (line.contains("Purse|Piggy".toRegex())) {
+        for (line in lines) if (line.contains("Purse") || line.contains("Piggy")) {
             return line.stripControlCodes().filter {
                 it.isDigit() || it == ' '
             }.trim()

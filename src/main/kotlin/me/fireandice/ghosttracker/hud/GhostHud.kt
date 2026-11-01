@@ -1,34 +1,37 @@
 package me.fireandice.ghosttracker.hud
 
-import cc.polyfrost.oneconfig.hud.BasicHud
-import cc.polyfrost.oneconfig.libs.universal.UMatrixStack
 import me.fireandice.ghosttracker.GhostTracker
 import me.fireandice.ghosttracker.config.GhostConfig
 import me.fireandice.ghosttracker.hud.elements.BasicHudLine
-import me.fireandice.ghosttracker.hud.elements.HudLine
 import me.fireandice.ghosttracker.hud.elements.SuffixHudLine
+import me.fireandice.ghosttracker.hud.elements.HudLine
 import me.fireandice.ghosttracker.hud.elements.withColor
 import me.fireandice.ghosttracker.tracker.GhostDrops
 import me.fireandice.ghosttracker.utils.FONT_HEIGHT
 import me.fireandice.ghosttracker.utils.ScoreboardUtils
-import net.minecraftforge.common.MinecraftForge
+import net.minecraft.client.gui.GuiGraphicsExtractor
 import java.text.DecimalFormat
 
-class GhostHud : BasicHud(true) {
+/**
+ * The hud that displays the stats of the total (non-timed) tracker.
+ * Replaced the old OneConfig BasicHud; the line list and refreshLines() logic are unchanged.
+ */
+class GhostHud(private val position: HudPosition) : HudInstance {
 
-    @Transient private var lines: ArrayList<HudLine> = ArrayList(11)
-    @Transient private var exampleLines: ArrayList<HudLine> = ArrayList(11)
+    private val lines: ArrayList<HudLine> = ArrayList(11)
+    private val exampleLines: ArrayList<HudLine> = ArrayList(11)
 
-    @Transient private var width = 0f
-    @Transient private var height = 0f
+    /** Unfinished width and height of the whole hud, used for dragging it around in the editor screen. */
+    override var width = 0f
+        private set
+    override var height = 0f
+        private set
 
-    @Transient private val intFormat = DecimalFormat("#,###")
-    @Transient private val decimalFormat = DecimalFormat("#,##0.##")
-    @Transient private val marginFormat = DecimalFormat("0.00")
+    private val intFormat = DecimalFormat("#,###")
+    private val decimalFormat = DecimalFormat("#,##0.##")
+    private val marginFormat = DecimalFormat("0.00")
 
     init {
-        MinecraftForge.EVENT_BUS.register(this)
-
         val config = GhostConfig
         val stats = GhostTracker.ghostStats
 
@@ -105,6 +108,24 @@ class GhostHud : BasicHud(true) {
             Images.Money,
             config::tracker_totalMoney
         )
+        lines += BasicHudLine(
+            "Shards: ",
+            intFormat.format(stats.shardCount) withColor config::dropColor,
+            Images.Shards,
+            config::tracker_shardCount
+        )
+        lines += BasicHudLine(
+            "Avg Shards: ",
+            stats.getAverageShards(decimalFormat) withColor config::mfColor,
+            Images.Shards,
+            config::tracker_shardAverage
+        )
+        lines += BasicHudLine(
+            "Gemstones: ",
+            stats.getGemstoneDisplay(config.gemstoneDisplayOption, intFormat) withColor config::coinColor,
+            Images.Gemstones,
+            config::tracker_gemstones
+        )
         //</editor-fold>
 
         //<editor-fold desc="initializing example lines">
@@ -179,32 +200,68 @@ class GhostHud : BasicHud(true) {
             Images.Money,
             config::tracker_totalMoney
         )
+        exampleLines += BasicHudLine(
+            "Shards: ",
+            "1,234" withColor config::dropColor,
+            Images.Shards,
+            config::tracker_shardCount
+        )
+        exampleLines += BasicHudLine(
+            "Avg Shards: ",
+            "2.5" withColor config::mfColor,
+            Images.Shards,
+            config::tracker_shardAverage
+        )
+        exampleLines += BasicHudLine(
+            "Gemstones: ",
+            "2,500 (1,895,432)" withColor config::coinColor,
+            Images.Gemstones,
+            config::tracker_gemstones
+        )
         //</editor-fold>
     }
 
-    override fun getWidth(scale: Float, example: Boolean): Float = width
-    override fun getHeight(scale: Float, example: Boolean): Float = height
-    override fun shouldShow(): Boolean = isEnabled && (GhostConfig.showEverywhere || ScoreboardUtils.inDwarvenMines)
-
-    override fun draw(matrices: UMatrixStack?, x: Float, y: Float, scale: Float, example: Boolean) {
-        if (example) return drawLines(exampleLines, x, y, scale)
-        drawLines(lines, x, y, scale)
+    /**
+     * Rendered from `platform.Platform.registerHud()`
+     */
+    fun render(graphics: GuiGraphicsExtractor) {
+        if (!shouldShow()) return
+        draw(graphics, lines)
     }
 
-    private fun drawLines(linesToDraw: ArrayList<HudLine>, x: Float, y: Float, scale: Float) {
+    /**
+     * Used in the hud editor screen to drag the hud around.
+     */
+    override fun drawExample(graphics: GuiGraphicsExtractor) = draw(graphics, exampleLines)
+
+    private fun draw(graphics: GuiGraphicsExtractor, linesToDraw: ArrayList<HudLine>) {
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate(position.x.toFloat(), position.y.toFloat())
+        pose.scale(position.scale)
+
         var drawnLines = 0
-        var textY = y
+        var textY = 0
         var longestLine = 0f
 
         for (line in linesToDraw) {
-            if (!line.draw(x, textY, scale)) continue
+            val drew = when (line) {
+                is BasicHudLine -> line.draw(0, textY, graphics)
+                is SuffixHudLine -> line.draw(0, textY, graphics)
+                else -> line.draw(0, textY)
+            }
+            if (!drew) continue
             drawnLines++
-            textY += FONT_HEIGHT * scale
+            textY += FONT_HEIGHT
             longestLine = longestLine.coerceAtLeast(line.width)
         }
-        height = (drawnLines * FONT_HEIGHT - 1) * scale
-        width = longestLine * scale
+        height = drawnLines * FONT_HEIGHT * position.scale
+        width = longestLine * position.scale
+
+        pose.popMatrix()
     }
+
+    fun shouldShow(): Boolean = GhostConfig.showEverywhere || ScoreboardUtils.inDwarvenMines
 
     /**
      * Called in `EventListener.onTickStart()`
@@ -268,5 +325,14 @@ class GhostHud : BasicHud(true) {
         if (config.tracker_totalMoney) {
             (lines[10] as BasicHudLine).main.text = intFormat.format(stats.totalValue)
         }
+
+        if (config.tracker_shardCount)
+            (lines[11] as BasicHudLine).main.text = intFormat.format(stats.shardCount)
+
+        if (config.tracker_shardAverage)
+            (lines[12] as BasicHudLine).main.text = stats.getAverageShards(decimalFormat)
+
+        if (config.tracker_gemstones)
+            (lines[13] as BasicHudLine).main.text = stats.getGemstoneDisplay(config.gemstoneDisplayOption, intFormat)
     }
 }

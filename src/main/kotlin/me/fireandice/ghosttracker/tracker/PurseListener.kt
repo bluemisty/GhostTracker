@@ -7,8 +7,6 @@ import me.fireandice.ghosttracker.utils.logError
 
 object PurseListener {
 
-//    private val PURSE_PATTERN = "(?<purse>\\d+)(?: \\(\\+(?<scavenger>\\d+)\\)?)?".toPattern()
-//    private val COMBO_LOST_PATTERN = "Your Kill Combo has expired! You reached a [\\d,]+ Kill Combo!".toRegex()
     private var previousPurse: Int? = null
 
     /**

@@ -21,7 +21,19 @@ class GhostStats {
         "totalMf" to 0,
         "mfDropCount" to 0,
         "totalXp" to 0f,
-        "scavenger" to 0
+        "scavenger" to 0,
+        "shardCount" to 0,
+        "charmCount" to 0,
+        "roughJadeCount" to 0,
+        "flawedJadeCount" to 0,
+        "roughAmberCount" to 0,
+        "flawedAmberCount" to 0,
+        "roughSapphireCount" to 0,
+        "flawedSapphireCount" to 0,
+        "roughTopazCount" to 0,
+        "flawedTopazCount" to 0,
+        "roughAmethystCount" to 0,
+        "flawedAmethystCount" to 0
     )
 
     var sorrowCount: Int by stats
@@ -35,6 +47,20 @@ class GhostStats {
     var totalXp: Float by stats
     var scavenger: Int by stats
 
+    var shardCount: Int by stats
+    var charmCount: Int by stats
+
+    var roughJadeCount: Int by stats
+    var flawedJadeCount: Int by stats
+    var roughAmberCount: Int by stats
+    var flawedAmberCount: Int by stats
+    var roughSapphireCount: Int by stats
+    var flawedSapphireCount: Int by stats
+    var roughTopazCount: Int by stats
+    var flawedTopazCount: Int by stats
+    var roughAmethystCount: Int by stats
+    var flawedAmethystCount: Int by stats
+
     val totalValue: Int
         get() = (sorrowCount * PriceData.sorrowPrice +
                 voltaCount * PriceData.voltaPrice +
@@ -42,6 +68,52 @@ class GhostStats {
                 bootsCount * PriceData.bootsPrice +
                 coinsCount * 1_000_000 +
                 scavenger).toInt()
+
+    fun addGem(drop: GhostDrops) {
+        when (drop) {
+            RoughJade -> roughJadeCount++
+            FlawedJade -> flawedJadeCount++
+            RoughAmber -> roughAmberCount++
+            FlawedAmber -> flawedAmberCount++
+            RoughSapphire -> roughSapphireCount++
+            FlawedSapphire -> flawedSapphireCount++
+            RoughTopaz -> roughTopazCount++
+            FlawedTopaz -> flawedTopazCount++
+            RoughAmethyst -> roughAmethystCount++
+            FlawedAmethyst -> flawedAmethystCount++
+            else -> {}
+        }
+    }
+
+    /** Combined count of all ten gemstone drops */
+    val gemstoneCount: Int
+        get() = roughJadeCount + flawedJadeCount +
+                roughAmberCount + flawedAmberCount +
+                roughSapphireCount + flawedSapphireCount +
+                roughTopazCount + flawedTopazCount +
+                roughAmethystCount + flawedAmethystCount
+
+    /** Combined coin value of all ten gemstone drops, at bazaar prices */
+    val gemstoneValue: Float
+        get() = roughJadeCount * PriceData.roughJadePrice + flawedJadeCount * PriceData.flawedJadePrice +
+                roughAmberCount * PriceData.roughAmberPrice + flawedAmberCount * PriceData.flawedAmberPrice +
+                roughSapphireCount * PriceData.roughSapphirePrice + flawedSapphireCount * PriceData.flawedSapphirePrice +
+                roughTopazCount * PriceData.roughTopazPrice + flawedTopazCount * PriceData.flawedTopazPrice +
+                roughAmethystCount * PriceData.roughAmethystPrice + flawedAmethystCount * PriceData.flawedAmethystPrice
+
+    /**
+     * The combined gemstones category display: 0 shows only the count, 1 the coin value, 2 both.
+     */
+    fun getGemstoneDisplay(displayOption: Int, format: DecimalFormat): String = when (displayOption) {
+        0 -> format.format(gemstoneCount)
+        1 -> format.format(gemstoneValue)
+        else -> "${format.format(gemstoneCount)} (${format.format(gemstoneValue)})"
+    }
+
+    fun getAverageShards(format: DecimalFormat): String {
+        if (charmCount == 0) return "-"
+        return format.format(shardCount.toFloat() / charmCount)
+    }
 
     private fun getAverageMf(): Float? {
         if (mfDropCount > 0) return totalMf.toFloat() / mfDropCount
@@ -84,6 +156,7 @@ class GhostStats {
                 bootsCount
             }
             Coins -> coinsCount
+            else -> return null    // gemstones are excluded from the comparisons, they have no known base chance
         }
         if (actual == 0) return null    // this would display "-100.00%" which I don't really want
 
@@ -110,6 +183,18 @@ class GhostStats {
         mfDropCount = 0
         totalXp = 0f
         scavenger = 0
+        shardCount = 0
+        charmCount = 0
+        roughJadeCount = 0
+        flawedJadeCount = 0
+        roughAmberCount = 0
+        flawedAmberCount = 0
+        roughSapphireCount = 0
+        flawedSapphireCount = 0
+        roughTopazCount = 0
+        flawedTopazCount = 0
+        roughAmethystCount = 0
+        flawedAmethystCount = 0
     }
 
     fun toJson() = JsonObject().apply { for (stat in stats) add(stat.key, JsonPrimitive(stat.value)) }
@@ -118,9 +203,10 @@ class GhostStats {
         for (stat in stats) {
             val jsonElement = json[stat.key] ?: continue
             try {
-                stats[stat.key] = jsonElement.asFloat
+                // restore each stat in its own type, ints stored as floats would crash increments later
+                stats[stat.key] = if (stat.value is Float) jsonElement.asFloat else jsonElement.asInt
             } catch (e: ClassCastException) {
-                logError("${stat.key} couldn't be cast to float")
+                logError("${stat.key} couldn't be cast to the tracked type")
             } catch (e: Exception) {
                 e.message?.let { logError(it) }
             }

@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "ghosttracker",
+	"version": "${version}",
+	"name": "${name}",
+	"description": "SkyBlock HUD that tracks ghost grinding stats (drops, kills, combat XP) with a total tracker and a timed tracker.",
+	"authors": [
+		"DanceWithFire aka llFireAndIcell"
+	],
+	"contact": {
+		"homepage": "https://github.com/llFireAndIcell/GhostTracker",
+		"sources": "https://github.com/llFireAndIcell/GhostTracker"
+	},
+	"license": "GPL-3.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			{
+				"value": "me.fireandice.ghosttracker.GhostTrackerClient",
+				"adapter": "kotlin"
+			}
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

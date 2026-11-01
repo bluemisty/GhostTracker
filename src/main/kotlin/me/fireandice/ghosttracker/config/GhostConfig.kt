@@ -1,115 +1,89 @@
 package me.fireandice.ghosttracker.config
 
-import cc.polyfrost.oneconfig.config.Config
-import cc.polyfrost.oneconfig.config.annotations.*
-import cc.polyfrost.oneconfig.config.annotations.Number
-import cc.polyfrost.oneconfig.config.core.OneColor
-import cc.polyfrost.oneconfig.config.core.OneKeyBind
-import cc.polyfrost.oneconfig.config.data.Mod
-import cc.polyfrost.oneconfig.config.data.ModType
-import cc.polyfrost.oneconfig.renderer.TextRenderer.TextType
-import me.fireandice.ghosttracker.GhostTracker
+import com.google.gson.JsonObject
 import me.fireandice.ghosttracker.hud.GhostHud
+import me.fireandice.ghosttracker.hud.HudManager
 import me.fireandice.ghosttracker.hud.TimerHud
-import me.fireandice.ghosttracker.tracker.GhostTimer
+import me.fireandice.ghosttracker.utils.gson
+import me.fireandice.ghosttracker.utils.logError
+import java.io.File
 
-@Suppress("unused")
-object GhostConfig : Config(Mod(GhostTracker.NAME, ModType.SKYBLOCK), "GhostConfig.json") {
+/**
+ * A simple color held by the config. Modern versions use packed argb ints when drawing text; values here
+ * keep vanilla palette names so the config screen can cycle through them with readable labels.
+ */
+class HudColor(val name: String, val packed: Int) {
+    constructor(packed: Int) : this(colorName(packed), packed)
+    constructor(hex: String) : this(colorName(parseHex(hex)), parseHex(hex))
+
+    companion object {
+        const val AQUA = 0x55FFFF
+        const val BLUE = 0x5555FF
+        const val GOLD = 0xFFAA00
+        const val RED = 0xFF5555
+        const val YELLOW = 0xFFFF55
+        const val GREEN = 0x55FF55
+        const val LIGHT_PURPLE = 0xFF55FF
+        const val WHITE = 0xFFFFFF
+        const val GRAY = 0xAAAAAA
+        const val DARK_GRAY = 0x555555
+        const val DARK_BLUE = 0x0000AA
+        const val BLACK = 0x000000
+
+        val PALETTE: List<HudColor> = listOf(
+            HudColor("aqua", AQUA),
+            HudColor("blue", BLUE),
+            HudColor("gold", GOLD),
+            HudColor("red", RED),
+            HudColor("yellow", YELLOW),
+            HudColor("green", GREEN),
+            HudColor("light purple", LIGHT_PURPLE),
+            HudColor("white", WHITE),
+            HudColor("gray", GRAY),
+            HudColor("dark gray", DARK_GRAY),
+            HudColor("dark blue", DARK_BLUE),
+            HudColor("black", BLACK)
+        )
+
+        private fun colorName(packed: Int): String =
+            PALETTE.firstOrNull { it.packed == packed }?.name ?: String.format("%06x", packed)
+
+        private fun parseHex(hex: String): Int = hex.trim().toLong(16).toInt() and 0xFFFFFF
+    }
+}
+
+/**
+ * All config options. Replaced OneConfig; the field names, defaults and semantics are kept the same
+ * as the old 1.8.9 mod so the HUD classes stayed untouched.
+ */
+object GhostConfig {
+
+    private var file: File? = null
 
     //<editor-fold desc="General settings">
-    //<editor-fold> desc="General">
-    @Switch(
-        name = "Show everywhere",
-        description = "Show everywhere, instead of only in dwarven mines",
-        category = "General"
-    )
     var showEverywhere = false
-
-    /**
-     * Don't use this one
-     */
-    @Dropdown(
-        name = "Shadow type",
-        options = ["None", "Shadow", "Full shadow"],
-        category = "General"
-    )
-    var shadowOption = 1
-
-    /**
-     * Use this one
-     */
-    val shadow: TextType
-        get() = when (shadowOption) {
-            1 -> TextType.SHADOW
-            2 -> TextType.FULL
-            else -> TextType.NONE
-        }
-
-    @Switch(
-        name = "Show icons",
-        description = "Show a small icon to the left of every hud line",
-        category = "General"
-    )
     var showIcons = true
-
-    @Switch(
-        name = "Abbreviate text",
-        description = "Reduce text on each hud line",
-        category = "General"
-    )
     var abbreviate = false
-
-    // originally `showPrefixes` was tied to the config option, but I updated the description of the config option and
-    // inverted the value to logically match the new description. Instead of changing it everywhere in the code, I just
-    // tied `abbreviate` to the config option and invert it
     val showPrefixes get() = !abbreviate
-
-    @Switch(
-        name = "Show margins",
-        description = "Show the percent difference between drops you've received and the mathematical average",
-        category = "General"
-    )
     var showMargins = true
-    //</editor-fold>
 
-    //<editor-fold> desc="Enchants">
-    @Number(
-        name = "Looting level",
-        category = "General",
-        subcategory = "Enchants",
-        min = 0f,
-        max = 10f,  // in case they add more levels or something idk
-        step = 1
-    )
+    /** None / Shadow / Full shadow: the last two map onto the vanilla text drop shadow */
+    var shadowOption = 1
+        private set
+
+    val shadow: Boolean
+        get() = shadowOption == 1 || shadowOption == 2
+
+    fun cycleShadowOption() {
+        shadowOption = (shadowOption + 1) % 3
+    }
+
+    /** Enchant levels used for percent difference calculations */
     var lootingLevel = 5
-
-    @Number(
-        name = "Luck level",
-        category = "General",
-        subcategory = "Enchants",
-        min = 0f,
-        max = 10f,  // in case they add more levels or something idk
-        step = 1
-    )
     var luckLevel = 7
-    //</editor-fold>
 
-    //<editor-fold> desc="Price fetching">
-    /**
-     * Don't use this one
-     */
-    @Dropdown(
-        name = "Price timespan",
-        category = "General",
-        subcategory = "Price Fetching",
-        description = "The timespan of price data to use and average out",
-        options = ["Hour", "Day", "Week"]
-    )
-    var priceTimespanOption: Int = 2
+    var priceTimespanOption = 2
 
-    /**
-     * Use this one
-     */
     val priceTimespan: String
         get() = when (priceTimespanOption) {
             0 -> "hour"
@@ -117,324 +91,185 @@ object GhostConfig : Config(Mod(GhostTracker.NAME, ModType.SKYBLOCK), "GhostConf
             else -> "week"
         }
 
-    @Number(
-        name = "Fetch frequency (minutes)",
-        category = "General",
-        subcategory = "Price Fetching",
-        description = "The frequency that api data is refreshed",
-        min = 5f,
-        max = 120f,
-        step = 1
-    )
     var priceFrequency: Int = 20
+
+    /** How the combined gemstones category is shown: 0 count, 1 coin value, 2 both */
+    var gemstoneDisplayOption = 2
     //</editor-fold>
 
-    //<editor-fold> desc="Colors">
-    @Color(
-        name = "Kill color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var killColor = OneColor(85, 255, 255)      // aqua
-
-    @Color(
-        name = "Drop color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var dropColor = OneColor(85, 85, 255)       // blue
-
-    @Color(
-        name = "Percent difference color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var marginColor = OneColor(85, 85, 85)      // dark gray
-
-    @Color(
-        name = "Magic find color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var mfColor = OneColor(255, 170, 0)         // gold
-
-    @Color(
-        name = "Combat XP color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var xpColor = OneColor(255, 85, 85)         // red
-
-    @Color(
-        name = "Time color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var timeColor = OneColor(85, 255, 255)      // aqua
-
-    @Color(
-        name = "Money color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var coinColor = OneColor(255, 170, 0)       // gold
-
-    @Color(
-        name = "Pause indicator color",
-        category = "General",
-        subcategory = "Colors"
-    )
-    var pauseColor = OneColor(85, 85, 85)       // dark gray
-    //</editor-fold>
+    //<editor-fold desc="Colors">
+    var killColor = HudColor(HudColor.AQUA)        // aqua
+    var dropColor = HudColor(HudColor.BLUE)        // blue
+    var marginColor = HudColor(HudColor.DARK_GRAY) // dark gray
+    var mfColor = HudColor(HudColor.GOLD)          // gold
+    var xpColor = HudColor(HudColor.RED)           // red
+    var timeColor = HudColor(HudColor.AQUA)        // aqua
+    var coinColor = HudColor(HudColor.GOLD)        // gold
+    var pauseColor = HudColor(HudColor.DARK_GRAY)  // dark gray
     //</editor-fold>
 
-    //<editor-fold desc="Stat tracker settings">
-    //<editor-fold> desc="Control panel">
-    @Button(
-        name = "Reset stats",
-        text = "Reset",
-        category = "Stat Tracker",
-        subcategory = "Control Panel"
-    )
-    var tracker_resetButton = Runnable { GhostTracker.resetStats() }
-
-    @KeyBind(
-        name = "Stat reset keybind",
-        category = "Stat Tracker",
-        subcategory = "Control Panel"
-    )
-    var tracker_resetKb = OneKeyBind()
-    //</editor-fold>
-
-    //<editor-fold> desc="Display info">
-    @Switch(
-        name = "Show kill count",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
+    //<editor-fold desc="Stat tracker display">
     var tracker_kills = true
-
-    @Switch(
-        name = "Show sorrow count",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_sorrow = true
-
-    @Switch(
-        name = "Show volta count",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_volta = true
-
-    @Switch(
-        name = "Show plasma count",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_plasma = true
-
-    @Switch(
-        name = "Show ghostly boots count",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_boots = true
-
-    @Switch(
-        name = "Show 1m coin drop count",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_coins = true
-
-    @Switch(
-        name = "Show average magic find",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_mf = true
-
-    @Switch(
-        name = "Show average combat XP",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_averageXp = true
-
-    @Switch(
-        name = "Show total combat XP",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_totalXp = true
-
-    @Switch(
-        name = "Show scavenger coins",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_scavenger = true
-
-    @Switch(
-        name = "Show total money",
-        category = "Stat Tracker",
-        subcategory = "Display Information"
-    )
     var tracker_totalMoney = true
+    var tracker_shardCount = true
+    var tracker_shardAverage = true
+    var tracker_gemstones = true
     //</editor-fold>
 
-    @HUD(
-        name = "Stats HUD",
-        category = "Stat Tracker",
-        subcategory = "HUD Settings"
-    )
-    var tracker_hud = GhostHud()
-    //</editor-fold>
-
-    //<editor-fold desc="Session timer settings">
-    //<editor-fold> desc="Control panel">
-    @Button(
-        name = "Reset timer",
-        text = "Reset",
-        category = "Session Timer",
-        subcategory = "Control Panel"
-    )
-    var timer_resetButton = Runnable { GhostTimer.reset() }
-
-    @KeyBind(
-        name = "Reset timer keybind",
-        category = "Session Timer",
-        subcategory = "Control Panel"
-    )
-    var timer_resetKb = OneKeyBind()
-
-    @Button(
-        name = "Start/resume timer",
-        text = "Start",
-        category = "Session Timer",
-        subcategory = "Control Panel"
-    )
-    var startButton = Runnable { GhostTimer.start() }
-
-    @KeyBind(
-        name = "Start/pause timer keybind",
-        category = "Session Timer",
-        subcategory = "Control Panel"
-    )
-    var pauseKb = OneKeyBind()
-
-    @Button(
-        name = "Pause timer",
-        text = "Pause",
-        category = "Session Timer",
-        subcategory = "Control Panel"
-    )
-    var pauseButton = Runnable { GhostTimer.pause() }
-    //</editor-fold>
-
-    //<editor-fold> desc="Display info">
-    @Switch(
-        name = "Show kills per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
+    //<editor-fold desc="Session timer display">
     var timer_kills = true
-
-    @Switch(
-        name = "Show sorrows per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_sorrow = true
-
-    @Switch(
-        name = "Show voltas per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_volta = true
-
-    @Switch(
-        name = "Show plasmas per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_plasma = true
-
-    @Switch(
-        name = "Show ghostly boots per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_boots = true
-
-    @Switch(
-        name = "Show 1m coins per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_coins = true
-
-    @Switch(
-        name = "Show average magic find",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_mf = true
-
-    @Switch(
-        name = "Show average combat XP",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_averageXp = true
-
-    @Switch(
-        name = "Show combat XP per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_xpRate = true
-
-    @Switch(
-        name = "Show scavenger coins",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_scavenger = true
-
-    @Switch(
-        name = "Show money per hour",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_moneyRate = true
-
-    @Switch(
-        name = "Show session time",
-        category = "Session Timer",
-        subcategory = "Display Information"
-    )
     var timer_time = true
+    var timer_shardCount = true
+    var timer_shardAverage = true
+    var timer_gemstones = true
     //</editor-fold>
 
-    @HUD(
-        name = "Session timer HUD",
-        category = "Session Timer",
-        subcategory = "HUD Settings"
-    )
-    var timer_hud = TimerHud()
+    //<editor-fold desc="Huds">
+    val trackerHud = GhostHud(HudManager.tracker)
+    val timerHud = TimerHud(HudManager.timer)
     //</editor-fold>
 
-    init {
-        initialize()
-        registerKeyBind(tracker_resetKb, GhostTracker::resetStats)
-        registerKeyBind(timer_resetKb, GhostTimer::reset)
-        registerKeyBind(pauseKb) {
-            if (GhostTimer.isTracking) GhostTimer.pause()
-            else GhostTimer.start()
+    private fun file(): File {
+        if (file == null) file = File(me.fireandice.ghosttracker.GhostTracker.dataDir, "GhostConfig.json")
+        return file!!
+    }
+
+    fun save() {
+        val json = JsonObject().apply {
+            addProperty("showEverywhere", showEverywhere)
+            addProperty("showIcons", showIcons)
+            addProperty("abbreviate", abbreviate)
+            addProperty("showMargins", showMargins)
+            addProperty("shadowOption", shadowOption)
+            addProperty("lootingLevel", lootingLevel)
+            addProperty("luckLevel", luckLevel)
+            addProperty("priceTimespanOption", priceTimespanOption)
+            addProperty("priceFrequency", priceFrequency)
+            addProperty("gemstoneDisplayOption", gemstoneDisplayOption)
+            addProperty("killColor", String.format("%06X", killColor.packed))
+            addProperty("dropColor", String.format("%06X", dropColor.packed))
+            addProperty("marginColor", String.format("%06X", marginColor.packed))
+            addProperty("mfColor", String.format("%06X", mfColor.packed))
+            addProperty("xpColor", String.format("%06X", xpColor.packed))
+            addProperty("timeColor", String.format("%06X", timeColor.packed))
+            addProperty("coinColor", String.format("%06X", coinColor.packed))
+            addProperty("pauseColor", String.format("%06X", pauseColor.packed))
+            addProperty("tracker_kills", tracker_kills)
+            addProperty("tracker_sorrow", tracker_sorrow)
+            addProperty("tracker_volta", tracker_volta)
+            addProperty("tracker_plasma", tracker_plasma)
+            addProperty("tracker_boots", tracker_boots)
+            addProperty("tracker_coins", tracker_coins)
+            addProperty("tracker_mf", tracker_mf)
+            addProperty("tracker_averageXp", tracker_averageXp)
+            addProperty("tracker_totalXp", tracker_totalXp)
+            addProperty("tracker_scavenger", tracker_scavenger)
+            addProperty("tracker_totalMoney", tracker_totalMoney)
+            addProperty("tracker_shardCount", tracker_shardCount)
+            addProperty("tracker_shardAverage", tracker_shardAverage)
+            addProperty("tracker_gemstones", tracker_gemstones)
+            addProperty("timer_kills", timer_kills)
+            addProperty("timer_sorrow", timer_sorrow)
+            addProperty("timer_volta", timer_volta)
+            addProperty("timer_plasma", timer_plasma)
+            addProperty("timer_boots", timer_boots)
+            addProperty("timer_coins", timer_coins)
+            addProperty("timer_mf", timer_mf)
+            addProperty("timer_averageXp", timer_averageXp)
+            addProperty("timer_xpRate", timer_xpRate)
+            addProperty("timer_scavenger", timer_scavenger)
+            addProperty("timer_moneyRate", timer_moneyRate)
+            addProperty("timer_time", timer_time)
+            addProperty("timer_shardCount", timer_shardCount)
+            addProperty("timer_shardAverage", timer_shardAverage)
+            addProperty("timer_gemstones", timer_gemstones)
+        }
+        file().bufferedWriter().use { it.write(gson.toJson(json)) }
+    }
+
+    fun load() {
+        try {
+            val json: JsonObject = file().bufferedReader().use { gson.fromJson(it, JsonObject::class.java) }
+            for ((key, element) in json.entrySet()) {
+                try {
+                    readOption(key, element.asString)
+                } catch (e: Exception) {
+                    logError("Config option '$key' had invalid value")
+                }
+            }
+        } catch (_: Exception) {
+            // Missing file, presumably first launch
+        }
+    }
+
+    private fun readOption(key: String, value: String) {
+        when (key) {
+            "showEverywhere" -> showEverywhere = value.toBoolean()
+            "showIcons" -> showIcons = value.toBoolean()
+            "abbreviate" -> abbreviate = value.toBoolean()
+            "showMargins" -> showMargins = value.toBoolean()
+            "shadowOption" -> shadowOption = value.toIntOrNull()?.coerceIn(0, 2) ?: 1
+            "lootingLevel" -> lootingLevel = value.toInt()
+            "luckLevel" -> luckLevel = value.toInt()
+            "priceTimespanOption" -> priceTimespanOption = value.toInt().coerceIn(0, 2)
+            "priceFrequency" -> priceFrequency = value.toInt()
+            "gemstoneDisplayOption" -> gemstoneDisplayOption = value.toInt().coerceIn(0, 2)
+            "killColor" -> killColor = HudColor(value)
+            "dropColor" -> dropColor = HudColor(value)
+            "marginColor" -> marginColor = HudColor(value)
+            "mfColor" -> mfColor = HudColor(value)
+            "xpColor" -> xpColor = HudColor(value)
+            "timeColor" -> timeColor = HudColor(value)
+            "coinColor" -> coinColor = HudColor(value)
+            "pauseColor" -> pauseColor = HudColor(value)
+            "tracker_kills" -> tracker_kills = value.toBoolean()
+            "tracker_sorrow" -> tracker_sorrow = value.toBoolean()
+            "tracker_volta" -> tracker_volta = value.toBoolean()
+            "tracker_plasma" -> tracker_plasma = value.toBoolean()
+            "tracker_boots" -> tracker_boots = value.toBoolean()
+            "tracker_coins" -> tracker_coins = value.toBoolean()
+            "tracker_mf" -> tracker_mf = value.toBoolean()
+            "tracker_averageXp" -> tracker_averageXp = value.toBoolean()
+            "tracker_totalXp" -> tracker_totalXp = value.toBoolean()
+            "tracker_scavenger" -> tracker_scavenger = value.toBoolean()
+            "tracker_totalMoney" -> tracker_totalMoney = value.toBoolean()
+            "tracker_shardCount" -> tracker_shardCount = value.toBoolean()
+            "tracker_shardAverage" -> tracker_shardAverage = value.toBoolean()
+            "tracker_gemstones" -> tracker_gemstones = value.toBoolean()
+            "timer_kills" -> timer_kills = value.toBoolean()
+            "timer_sorrow" -> timer_sorrow = value.toBoolean()
+            "timer_volta" -> timer_volta = value.toBoolean()
+            "timer_plasma" -> timer_plasma = value.toBoolean()
+            "timer_boots" -> timer_boots = value.toBoolean()
+            "timer_coins" -> timer_coins = value.toBoolean()
+            "timer_mf" -> timer_mf = value.toBoolean()
+            "timer_averageXp" -> timer_averageXp = value.toBoolean()
+            "timer_xpRate" -> timer_xpRate = value.toBoolean()
+            "timer_scavenger" -> timer_scavenger = value.toBoolean()
+            "timer_moneyRate" -> timer_moneyRate = value.toBoolean()
+            "timer_time" -> timer_time = value.toBoolean()
+            "timer_shardCount" -> timer_shardCount = value.toBoolean()
+            "timer_shardAverage" -> timer_shardAverage = value.toBoolean()
+            "timer_gemstones" -> timer_gemstones = value.toBoolean()
         }
     }
 }

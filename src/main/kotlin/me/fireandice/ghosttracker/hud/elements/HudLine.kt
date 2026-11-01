@@ -16,5 +16,5 @@ interface HudLine {
      * Function that draws the hud line, and calculates width and height (should not factor in scale)
      * @return True if the element was drawn, false otherwise
      */
-    fun draw(x: Float, y: Float, scale: Float): Boolean
+    fun draw(x: Int, y: Int): Boolean
 }

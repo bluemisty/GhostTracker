@@ -1,34 +1,36 @@
 package me.fireandice.ghosttracker.hud
 
-import cc.polyfrost.oneconfig.hud.BasicHud
-import cc.polyfrost.oneconfig.libs.universal.UMatrixStack
 import me.fireandice.ghosttracker.config.GhostConfig
 import me.fireandice.ghosttracker.hud.elements.BasicHudLine
-import me.fireandice.ghosttracker.hud.elements.HudLine
 import me.fireandice.ghosttracker.hud.elements.SuffixHudLine
 import me.fireandice.ghosttracker.hud.elements.withColor
 import me.fireandice.ghosttracker.tracker.GhostDrops
 import me.fireandice.ghosttracker.tracker.GhostTimer
-import me.fireandice.ghosttracker.utils.FONT_HEIGHT
 import me.fireandice.ghosttracker.utils.ScoreboardUtils
+import me.fireandice.ghosttracker.utils.FONT_HEIGHT
 import me.fireandice.ghosttracker.utils.stringBuilder
-import net.minecraftforge.common.MinecraftForge
+import net.minecraft.client.gui.GuiGraphicsExtractor
 import java.text.DecimalFormat
 
-class TimerHud : BasicHud(true) {
+/**
+ * The hud that displays the stats of the timed session. Replaced the old OneConfig BasicHud; the line
+ * list and refreshLines() logic are unchanged.
+ */
+class TimerHud(private val position: HudPosition) : HudInstance {
 
-    @Transient private val lines: ArrayList<HudLine> = ArrayList(12)
-    @Transient private val exampleLines: ArrayList<HudLine> = ArrayList(12)
+    private val lines: ArrayList<me.fireandice.ghosttracker.hud.elements.HudLine> = ArrayList(12)
+    private val exampleLines: ArrayList<me.fireandice.ghosttracker.hud.elements.HudLine> = ArrayList(12)
 
-    @Transient private var width = 0f
-    @Transient private var height = 0f
+    /** Unfinished width and height of the whole hud, used for dragging it around in the editor screen. */
+    override var width = 0f
+        private set
+    override var height = 0f
+        private set
 
-    @Transient private val decimalFormat = DecimalFormat("#,##0.##")
-    @Transient private val marginFormat = DecimalFormat("0.00")
+    private val decimalFormat = DecimalFormat("#,##0.##")
+    private val marginFormat = DecimalFormat("0.00")
 
     init {
-        MinecraftForge.EVENT_BUS.register(this)
-
         val config = GhostConfig
         val stats = GhostTimer.stats
         val millis: Long = GhostTimer.elapsedTime
@@ -145,6 +147,41 @@ class TimerHud : BasicHud(true) {
             config::timer_moneyRate
         )
 
+        val shardRate: String =
+            if (seconds == 0) "-"
+            else decimalFormat.format(stats.shardCount.toFloat() / seconds * 3600)
+        lines += BasicHudLine(
+            "Shards/hr: ",
+            (if (config.showPrefixes) shardRate else "$shardRate/hr") withColor config::dropColor,
+            Images.Shards,
+            config::timer_shardCount
+        )
+
+        lines += BasicHudLine(
+            "Avg Shards: ",
+            stats.getAverageShards(decimalFormat) withColor config::mfColor,
+            Images.Shards,
+            config::timer_shardAverage
+        )
+
+        val gemCountRate: String =
+            if (seconds == 0) "-"
+            else decimalFormat.format(stats.gemstoneCount.toFloat() / seconds * 3600)
+        val gemValueRate: String =
+            if (seconds == 0) "-"
+            else decimalFormat.format(stats.gemstoneValue / seconds * 3600)
+        val gemRate: String = when (config.gemstoneDisplayOption) {
+            0 -> gemCountRate
+            1 -> gemValueRate
+            else -> "$gemCountRate ($gemValueRate)"
+        }
+        lines += BasicHudLine(
+            "Gemstones/hr: ",
+            (if (config.showPrefixes) gemRate else "$gemRate/hr") withColor config::coinColor,
+            Images.Gemstones,
+            config::timer_gemstones
+        )
+
         val hours: Int = (seconds / 3600f).toInt()
         seconds %= 3600
         val minutes: Int = (seconds / 60f).toInt()
@@ -237,6 +274,24 @@ class TimerHud : BasicHud(true) {
             Images.Money,
             config::timer_moneyRate
         )
+        exampleLines += BasicHudLine(
+            "Shards/hr: ",
+            (if (config.showPrefixes) "300" else "300/hr") withColor config::dropColor,
+            Images.Shards,
+            config::timer_shardCount
+        )
+        exampleLines += BasicHudLine(
+            "Avg Shards: ",
+            "2.5" withColor config::mfColor,
+            Images.Shards,
+            config::timer_shardAverage
+        )
+        exampleLines += BasicHudLine(
+            "Gemstones/hr: ",
+            (if (config.showPrefixes) "2,500 (1,895,432)" else "2,500 (1,895,432)/hr") withColor config::coinColor,
+            Images.Gemstones,
+            config::timer_gemstones
+        )
         exampleLines += SuffixHudLine(
             "Time: ",
             "1h 0m 0s" withColor config::timeColor,
@@ -247,30 +302,47 @@ class TimerHud : BasicHud(true) {
         //</editor-fold>
     }
 
-    override fun getWidth(scale: Float, example: Boolean): Float = width
-    override fun getHeight(scale: Float, example: Boolean): Float = height
-
-    override fun shouldShow(): Boolean = isEnabled && (GhostConfig.showEverywhere || ScoreboardUtils.inDwarvenMines)
-
-    override fun draw(matrices: UMatrixStack?, x: Float, y: Float, scale: Float, example: Boolean) {
-        if (example) return drawLines(exampleLines, x, y, scale)
-        drawLines(lines, x, y, scale)
+    /**
+     * Rendered from `platform.Platform.registerHud()`
+     */
+    fun render(graphics: GuiGraphicsExtractor) {
+        if (!shouldShow()) return
+        draw(graphics, lines)
     }
 
-    private fun drawLines(linesToDraw: ArrayList<HudLine>, x: Float, y: Float, scale: Float) {
+    /**
+     * Used in the hud editor screen to drag the hud around.
+     */
+    override fun drawExample(graphics: GuiGraphicsExtractor) = draw(graphics, exampleLines)
+
+    private fun draw(graphics: GuiGraphicsExtractor, linesToDraw: ArrayList<me.fireandice.ghosttracker.hud.elements.HudLine>) {
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate(position.x.toFloat(), position.y.toFloat())
+        pose.scale(position.scale)
+
         var drawnLines = 0
-        var textY = y
+        var textY = 0
         var longestLine = 0f
 
         for (line in linesToDraw) {
-            if (!line.draw(x, textY, scale)) continue
+            val drew = when (line) {
+                is me.fireandice.ghosttracker.hud.elements.BasicHudLine -> line.draw(0, textY, graphics)
+                is me.fireandice.ghosttracker.hud.elements.SuffixHudLine -> line.draw(0, textY, graphics)
+                else -> line.draw(0, textY)
+            }
+            if (!drew) continue
             drawnLines++
-            textY += FONT_HEIGHT * scale
+            textY += FONT_HEIGHT
             longestLine = longestLine.coerceAtLeast(line.width)
         }
-        height = (drawnLines * FONT_HEIGHT - 1) * scale
-        width = longestLine * scale
+        height = drawnLines * FONT_HEIGHT * position.scale
+        width = longestLine * position.scale
+
+        pose.popMatrix()
     }
+
+    fun shouldShow(): Boolean = GhostConfig.showEverywhere || ScoreboardUtils.inDwarvenMines
 
     /**
      * Called in `EventListener.onTickStart()`
@@ -337,7 +409,7 @@ class TimerHud : BasicHud(true) {
             val coinsRate =
                 if (seconds == 0) "-"
                 else decimalFormat.format(stats.coinsCount.toFloat() / seconds * 3600)
-            
+
             val line = lines[5] as SuffixHudLine
             line.main.text = if (config.showPrefixes) coinsRate else "$coinsRate/hr"
             if (line.suffixVisible())
@@ -373,6 +445,31 @@ class TimerHud : BasicHud(true) {
             (lines[10] as BasicHudLine).main.text = if (config.showPrefixes) moneyRate else "$moneyRate/hr"
         }
 
+        if (config.timer_shardCount) {
+            val shardRate =
+                if (seconds == 0) "-"
+                else decimalFormat.format(stats.shardCount.toFloat() / seconds * 3600)
+            (lines[11] as BasicHudLine).main.text = if (config.showPrefixes) shardRate else "$shardRate/hr"
+        }
+
+        if (config.timer_shardAverage)
+            (lines[12] as BasicHudLine).main.text = stats.getAverageShards(decimalFormat)
+
+        if (config.timer_gemstones) {
+            val gemCountRate =
+                if (seconds == 0) "-"
+                else decimalFormat.format(stats.gemstoneCount.toFloat() / seconds * 3600)
+            val gemValueRate =
+                if (seconds == 0) "-"
+                else decimalFormat.format(stats.gemstoneValue / seconds * 3600)
+            val gemRate = when (config.gemstoneDisplayOption) {
+                0 -> gemCountRate
+                1 -> gemValueRate
+                else -> "$gemCountRate ($gemValueRate)"
+            }
+            (lines[13] as BasicHudLine).main.text = if (config.showPrefixes) gemRate else "$gemRate/hr"
+        }
+
         if (config.timer_time) {
             val hours: Int = (seconds / 3600f).toInt()
             seconds %= 3600
@@ -385,7 +482,7 @@ class TimerHud : BasicHud(true) {
                 append("${seconds}s")
             }
 
-            (lines[11] as SuffixHudLine).main.text = timeString
+            (lines[14] as SuffixHudLine).main.text = timeString
         }
     }
 }
